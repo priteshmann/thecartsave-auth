@@ -129,34 +129,40 @@ app.get('/oauth', (req, res) => {
   console.log("[DEBUG] Request headers:", JSON.stringify(req.headers, null, 2));
   console.log("========================");
   
-  // Instead of redirecting immediately, show debug info first
-  res.send(`
-    <html>
-      <head><title>OAuth Debug</title></head>
-      <body style="font-family: monospace; padding: 20px;">
-        <h2>OAuth Debug Information</h2>
-        <p><strong>Shop:</strong> ${shop}</p>
-        <p><strong>HOST env var:</strong> ${HOST}</p>
-        <p><strong>Redirect URI:</strong> ${redirectUri}</p>
-        <p><strong>Current request host:</strong> ${req.headers.host}</p>
-        
-        <h3>Shopify Partner Dashboard Should Have:</h3>
-        <p><strong>App URL:</strong> ${HOST}</p>
-        <p><strong>Allowed redirection URL(s):</strong> ${redirectUri}</p>
-        
-        <h3>Generated Auth URL:</h3>
-        <textarea style="width: 100%; height: 100px;">${authUrl}</textarea>
-        
-        <br><br>
-        <a href="${authUrl}" style="background: #5cb85c; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">
-          Continue to Shopify OAuth
-        </a>
-        
-        <br><br>
-        <p><em>Check the console logs for more detailed information</em></p>
-      </body>
-    </html>
-  `);
+  // Check if this is a debug request
+  if (req.query.debug === '1') {
+    // Show debug info
+    return res.send(`
+      <html>
+        <head><title>OAuth Debug</title></head>
+        <body style="font-family: monospace; padding: 20px;">
+          <h2>OAuth Debug Information</h2>
+          <p><strong>Shop:</strong> ${shop}</p>
+          <p><strong>HOST env var:</strong> ${HOST}</p>
+          <p><strong>Redirect URI:</strong> ${redirectUri}</p>
+          <p><strong>Current request host:</strong> ${req.headers.host}</p>
+          
+          <h3>Shopify Partner Dashboard Should Have:</h3>
+          <p><strong>App URL:</strong> ${HOST}</p>
+          <p><strong>Allowed redirection URL(s):</strong> ${redirectUri}</p>
+          
+          <h3>Generated Auth URL:</h3>
+          <textarea style="width: 100%; height: 100px;">${authUrl}</textarea>
+          
+          <br><br>
+          <a href="${authUrl}" style="background: #5cb85c; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">
+            Continue to Shopify OAuth
+          </a>
+          
+          <br><br>
+          <p><em>Check the console logs for more detailed information</em></p>
+        </body>
+      </html>
+    `);
+  }
+  
+  // Normal OAuth flow - redirect to Shopify
+  res.redirect(authUrl);
 });
 
 // Step 2: OAuth callback
