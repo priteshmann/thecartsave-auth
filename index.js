@@ -1,4 +1,13 @@
-// Safe debug middleware — logs host and path (no redirects)
+require('dotenv').config();
+const express = require('express');
+const fetch = require('node-fetch');
+const { Pool } = require('pg');
+const crypto = require('crypto');
+
+const app = express();
+app.use(express.json());
+
+// Debug middleware: log host + path for every request
 app.use((req, res, next) => {
   try {
     const host = req.headers.host || '<no-host>';
@@ -10,22 +19,13 @@ app.use((req, res, next) => {
   next();
 });
 
-require('dotenv').config();
-const express = require('express');
-const fetch = require('node-fetch');
-const { Pool } = require('pg');
-const crypto = require('crypto');
-
-const app = express();
-app.use(express.json());
-
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 const API_KEY = process.env.SHOPIFY_API_KEY;
 const API_SECRET = process.env.SHOPIFY_API_SECRET;
-const HOST = process.env.HOST; // must be set to https://thecartsave-auth.vercel.app
+const HOST = process.env.HOST; // should be https://thecartsave-auth.vercel.app
 
-// Root route - helpful redirect
+// Root route
 app.get('/', (req, res) => {
   const shop = req.query.shop || 'thecartsave-dev.myshopify.com';
   console.log("[DEBUG] Root accessed, redirecting to /oauth with shop =", shop);
@@ -102,7 +102,6 @@ app.post('/webhooks/checkout_update', async (req, res) => {
   }
 });
 
-// Start server (for local dev only, Vercel handles prod)
+// Start server (local dev only; Vercel handles prod)
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log("Server running on port", port));
-
