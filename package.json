@@ -1,0 +1,14 @@
+{
+  "name": "thecartsave-auth",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-fetch": "^2.6.7",
+    "pg": "^8.8.0",
+    "dotenv": "^16.0.3",
+    "cookie-session": "^2.0.0"
+  }
+}
