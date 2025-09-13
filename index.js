@@ -32,6 +32,17 @@ app.use((req, res, next) => {
 });
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+// Create table if it doesn't exist
+pool.query(`
+  CREATE TABLE IF NOT EXISTS shops (
+    id SERIAL PRIMARY KEY,
+    shop VARCHAR(255) UNIQUE NOT NULL,
+    access_token TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )
+`).catch(err => console.log('Table creation error (might already exist):', err.message));
+
 const API_KEY = process.env.SHOPIFY_API_KEY;
 const API_SECRET = process.env.SHOPIFY_API_SECRET;
 const HOST = process.env.HOST; // should be https://thecartsave-auth.vercel.app
