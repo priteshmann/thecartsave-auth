@@ -11,14 +11,18 @@ app.use(express.json());
 // Add cookie session for state management
 app.use(cookieSession({
   name: 'session',
-  keys: [process.env.SHOPIFY_API_SECRET], // Use your secret as key
-  maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  keys: [process.env.SHOPIFY_API_SECRET], 
+  maxAge: 24 * 60 * 60 * 1000 
 }));
 
-// IMPORTANT: Force redirect to production domain
+// IMPORTANT: Force redirect to production domain and log everything
 app.use((req, res, next) => {
   const host = req.headers.host || '';
   const expectedHost = 'thecartsave-auth.vercel.app';
+  
+  console.log(`[REQUEST] ${req.method} ${req.originalUrl}`);
+  console.log(`[HEADERS] Host: ${host}, User-Agent: ${req.headers['user-agent']}`);
+  console.log(`[QUERY] ${JSON.stringify(req.query)}`);
   
   // If we're not on the production domain, redirect
   if (host !== expectedHost && !host.includes('localhost')) {
@@ -27,7 +31,6 @@ app.use((req, res, next) => {
     return res.redirect(301, redirectUrl);
   }
   
-  console.log(`[HOST-DBG] host=${host} path=${req.originalUrl || req.url}`);
   next();
 });
 
@@ -45,7 +48,7 @@ pool.query(`
 
 const API_KEY = process.env.SHOPIFY_API_KEY;
 const API_SECRET = process.env.SHOPIFY_API_SECRET;
-const HOST = process.env.HOST; // should be https://thecartsave-auth.vercel.app
+const HOST = process.env.HOST;
 
 // Validate required environment variables
 if (!API_KEY || !API_SECRET || !HOST) {
@@ -60,9 +63,10 @@ app.get('/', (req, res) => {
   return res.redirect(`/oauth?shop=${encodeURIComponent(shop)}`);
 });
 
-// DEBUGGING ROUTE - Check what Shopify Partner Dashboard should have
+// Debug endpoint
 app.get('/debug', (req, res) => {
   const debugInfo = {
+    timestamp: new Date().toISOString(),
     environment: {
       API_KEY: API_KEY ? `${API_KEY.substring(0, 8)}...` : 'MISSING',
       API_SECRET: API_SECRET ? 'Present' : 'MISSING',
@@ -76,16 +80,25 @@ app.get('/debug', (req, res) => {
     },
     testUrls: {
       installUrl: `${HOST}/oauth?shop=thecartsave-dev.myshopify.com`,
-      callbackUrl: `${HOST}/oauth/callback`
+      callbackUrl: `${HOST}/oauth/callback`,
+      debugInstallUrl: `${HOST}/oauth?shop=thecartsave-dev.myshopify.com&debug=1`
+    },
+    troubleshooting: {
+      "Step 1": "Verify Partner Dashboard settings match exactly",
+      "Step 2": "Try creating a new development store",
+      "Step 3": "Try creating a new app in Partner Dashboard",
+      "Step 4": "Use Partner Dashboard 'Test on development store' button",
+      "Step 5": "Check if app is Public (not Custom)"
     }
   };
   
   res.json(debugInfo);
 });
 
-// Step 1: OAuth entry
+// Step 1: OAuth entry with multiple fallback approaches
 app.get('/oauth', (req, res) => {
   const shop = req.query.shop;
+  const debug = req.query.debug;
   
   if (!shop) {
     return res.status(400).send('Missing shop parameter');
@@ -110,59 +123,94 @@ app.get('/oauth', (req, res) => {
     'write_discounts'
   ].join(',');
   
-  // CRITICAL: Make sure redirect_uri exactly matches Partner Dashboard
+  // CRITICAL: Try different approaches based on common solutions
   const redirectUri = `${HOST}/oauth/callback`;
   
-  const authUrl = `https://${shop}/admin/oauth/authorize` +
+  // Try approach 1: Standard OAuth URL
+  const authUrl1 = `https://${shop}/admin/oauth/authorize` +
+    `?client_id=${API_KEY}` +
+    `&scope=${encodeURIComponent(scopes)}` +
+    `&state=${state}` +
+    `&redirect_uri=${redirectUri}`;
+  
+  // Try approach 2: Without encoding scopes
+  const authUrl2 = `https://${shop}/admin/oauth/authorize` +
+    `?client_id=${API_KEY}` +
+    `&scope=${scopes}` +
+    `&state=${state}` +
+    `&redirect_uri=${redirectUri}`;
+  
+  // Try approach 3: With encoded redirect_uri
+  const authUrl3 = `https://${shop}/admin/oauth/authorize` +
     `?client_id=${API_KEY}` +
     `&scope=${encodeURIComponent(scopes)}` +
     `&state=${state}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}`;
   
-  // DETAILED DEBUG LOGGING
   console.log("=== OAUTH DEBUG INFO ===");
   console.log("[DEBUG] Shop:", shop);
   console.log("[DEBUG] API_KEY:", API_KEY ? `${API_KEY.substring(0, 8)}...` : 'MISSING');
   console.log("[DEBUG] HOST env var:", HOST);
-  console.log("[DEBUG] Redirect URI being sent:", redirectUri);
-  console.log("[DEBUG] Full auth URL:", authUrl);
+  console.log("[DEBUG] Redirect URI:", redirectUri);
+  console.log("[DEBUG] Auth URL 1 (standard):", authUrl1);
+  console.log("[DEBUG] Auth URL 2 (no scope encoding):", authUrl2);
+  console.log("[DEBUG] Auth URL 3 (full encoding):", authUrl3);
   console.log("[DEBUG] Request headers:", JSON.stringify(req.headers, null, 2));
   console.log("========================");
   
-  // Check if this is a debug request
-  if (req.query.debug === '1') {
-    // Show debug info
+  // If debug mode, show all options
+  if (debug === '1') {
     return res.send(`
       <html>
         <head><title>OAuth Debug</title></head>
-        <body style="font-family: monospace; padding: 20px;">
+        <body style="font-family: monospace; padding: 20px; line-height: 1.6;">
           <h2>OAuth Debug Information</h2>
           <p><strong>Shop:</strong> ${shop}</p>
           <p><strong>HOST env var:</strong> ${HOST}</p>
           <p><strong>Redirect URI:</strong> ${redirectUri}</p>
           <p><strong>Current request host:</strong> ${req.headers.host}</p>
+          <p><strong>API Key:</strong> ${API_KEY ? `${API_KEY.substring(0, 8)}...` : 'MISSING'}</p>
           
-          <h3>Shopify Partner Dashboard Should Have:</h3>
+          <h3>Partner Dashboard Should Have:</h3>
           <p><strong>App URL:</strong> ${HOST}</p>
           <p><strong>Allowed redirection URL(s):</strong> ${redirectUri}</p>
+          <p><strong>App Type:</strong> Public (NOT Custom)</p>
           
-          <h3>Generated Auth URL:</h3>
-          <textarea style="width: 100%; height: 100px;">${authUrl}</textarea>
+          <h3>Try These OAuth URLs:</h3>
           
-          <br><br>
-          <a href="${authUrl}" style="background: #5cb85c; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">
-            Continue to Shopify OAuth
-          </a>
+          <div style="margin: 20px 0; padding: 15px; background: #f0f0f0;">
+            <h4>Option 1: Standard (recommended)</h4>
+            <textarea style="width: 100%; height: 80px; margin-bottom: 10px;">${authUrl1}</textarea>
+            <a href="${authUrl1}" style="background: #5cb85c; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px;">Try Option 1</a>
+          </div>
           
-          <br><br>
-          <p><em>Check the console logs for more detailed information</em></p>
+          <div style="margin: 20px 0; padding: 15px; background: #f0f0f0;">
+            <h4>Option 2: No scope encoding</h4>
+            <textarea style="width: 100%; height: 80px; margin-bottom: 10px;">${authUrl2}</textarea>
+            <a href="${authUrl2}" style="background: #f0ad4e; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px;">Try Option 2</a>
+          </div>
+          
+          <div style="margin: 20px 0; padding: 15px; background: #f0f0f0;">
+            <h4>Option 3: Full encoding</h4>
+            <textarea style="width: 100%; height: 80px; margin-bottom: 10px;">${authUrl3}</textarea>
+            <a href="${authUrl3}" style="background: #5bc0de; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px;">Try Option 3</a>
+          </div>
+          
+          <h3>Troubleshooting Steps:</h3>
+          <ol>
+            <li>Verify your Partner Dashboard settings match exactly</li>
+            <li>Make sure your app is <strong>Public</strong>, not Custom</li>
+            <li>Try creating a new development store</li>
+            <li>Try the Partner Dashboard "Test on development store" button</li>
+            <li>Clear browser cache and try incognito mode</li>
+          </ol>
         </body>
       </html>
     `);
   }
   
-  // Normal OAuth flow - redirect to Shopify
-  res.redirect(authUrl);
+  // Normal flow - use the standard approach
+  res.redirect(authUrl1);
 });
 
 // Step 2: OAuth callback
@@ -250,6 +298,7 @@ app.get('/oauth/callback', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
+    timestamp: new Date().toISOString(),
     host: req.headers.host,
     env: {
       hasApiKey: !!API_KEY,
@@ -259,12 +308,11 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Step 3: Webhook endpoint
+// Webhook endpoint
 app.post('/webhooks/checkout_update', async (req, res) => {
   try {
     const payload = req.body;
     console.log("Checkout update webhook received:", payload);
-    // Later: forward to n8n
     res.status(200).send("ok");
   } catch (err) {
     console.error("[ERROR] Webhook error:", err);
