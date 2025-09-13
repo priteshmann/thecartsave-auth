@@ -1,10 +1,11 @@
-// Force production domain
+// Safe debug middleware — logs host and path (no redirects)
 app.use((req, res, next) => {
-  const host = req.headers.host;
-  if (host !== 'thecartsave-auth.vercel.app') {
-    const redirectUrl = `https://thecartsave-auth.vercel.app${req.originalUrl}`;
-    console.log("[DEBUG] Forcing host redirect to production:", redirectUrl);
-    return res.redirect(301, redirectUrl);
+  try {
+    const host = req.headers.host || '<no-host>';
+    const path = req.originalUrl || req.url || '<no-path>';
+    console.log(`[HOST-DBG] host=${host} path=${path}`);
+  } catch (e) {
+    console.log("[HOST-DBG] error reading host/path", e && e.message);
   }
   next();
 });
