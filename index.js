@@ -1,3 +1,14 @@
+// Force production domain
+app.use((req, res, next) => {
+  const host = req.headers.host;
+  if (host !== 'thecartsave-auth.vercel.app') {
+    const redirectUrl = `https://thecartsave-auth.vercel.app${req.originalUrl}`;
+    console.log("[DEBUG] Forcing host redirect to production:", redirectUrl);
+    return res.redirect(301, redirectUrl);
+  }
+  next();
+});
+
 require('dotenv').config();
 const express = require('express');
 const fetch = require('node-fetch');
