@@ -192,8 +192,22 @@ app.get('/oauth/callback', async (req, res) => {
     
     console.log("Access token received for shop:", shop);
     
-    // TODO: Store in database (for now just log it)
-    console.log("Would store in database:", { shop, accessToken: `${accessToken.substring(0, 10)}...` });
+    // Store in database
+    if (pool) {
+      try {
+        await pool.query(
+          `INSERT INTO shops (shop, access_token) VALUES ($1, $2) 
+           ON CONFLICT (shop) DO UPDATE SET access_token = EXCLUDED.access_token`,
+          [shop, accessToken]
+        );
+        console.log("Access token stored in database for shop:", shop);
+      } catch (dbError) {
+        console.error("Database storage failed:", dbError.message);
+        // Continue anyway - don't fail the OAuth flow
+      }
+    } else {
+      console.log("No database configured - token not stored");
+    }
     
     res.send(`
       <html>
@@ -201,13 +215,13 @@ app.get('/oauth/callback', async (req, res) => {
         <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
           <h1>🎉 App Installed Successfully!</h1>
           <p>TheCartSave has been installed for <strong>${shop}</strong></p>
-          <p>Access token received and ready to use!</p>
+          <p>Access token received and ${pool ? 'stored in database' : 'logged (database not configured)'}!</p>
           <p>You can now close this tab.</p>
           
           <div style="margin-top: 30px; padding: 20px; background: #f0f0f0; border-radius: 8px;">
-            <h3>Next Steps:</h3>
-            <p>Database storage will be added in the next version.</p>
-            <p>For now, the access token is logged in the server console.</p>
+            <h3>Installation Complete</h3>
+            <p>Your Shopify app is now ready to use!</p>
+            ${pool ? '<p>✅ Database connection: Working</p>' : '<p>⚠️ Database connection: Not configured</p>'}
           </div>
         </body>
       </html>
