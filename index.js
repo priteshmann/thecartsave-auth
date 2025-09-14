@@ -84,6 +84,11 @@ app.get('/debug', (req, res) => {
       SHOPIFY_API_SECRET: SHOPIFY_API_SECRET ? 'SET' : 'MISSING',
       HOST: HOST || 'MISSING',
       DATABASE_URL: DATABASE_URL ? 'SET' : 'MISSING',
+      DB_HOST: DB_HOST || 'MISSING',
+      DB_PORT: DB_PORT || 'MISSING', 
+      DB_NAME: DB_NAME || 'MISSING',
+      DB_USER: DB_USER || 'MISSING',
+      DB_PASS: DB_PASS ? 'SET' : 'MISSING',
       NODE_ENV: process.env.NODE_ENV || 'not set'
     },
     database_connection: pool ? 'initialized' : 'not initialized',
