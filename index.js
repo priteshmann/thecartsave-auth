@@ -150,13 +150,23 @@ app.get('/oauth/callback', async (req, res) => {
     // Store in database
     if (pool) {
       try {
+        console.log('Attempting to store shop data for:', shop);
+        console.log('Access token received:', tokenData.access_token ? 'YES' : 'NO');
+        
+        // First check if shops table exists and what columns it has
+        const tableCheck = await pool.query(`
+          SELECT column_name, data_type 
+          FROM information_schema.columns 
+          WHERE table_name = 'shops'
+        `);
+        console.log('Shops table columns:', tableCheck.rows);
+        
         const query = `
-          INSERT INTO shops (shop_domain, access_token, plan, settings, created_at, updated_at)
-          VALUES ($1, $2, $3, $4, NOW(), NOW())
-          ON CONFLICT (shop_domain) 
+          INSERT INTO shops (shop, access_token, plan, settings, created_at)
+          VALUES ($1, $2, $3, $4, NOW())
+          ON CONFLICT (shop) 
           DO UPDATE SET 
-            access_token = $2,
-            updated_at = NOW()
+            access_token = $2
           RETURNING *
         `;
         
@@ -167,11 +177,18 @@ app.get('/oauth/callback', async (req, res) => {
           JSON.stringify({}) // default empty settings
         ];
 
+        console.log('Executing query with values:', values[0], values[2]); // Don't log the access token
         const result = await pool.query(query, values);
-        console.log('Shop data stored successfully:', result.rows[0].shop_domain);
+        console.log('Shop data stored successfully:', result.rows[0]);
         
       } catch (dbError) {
-        console.error('Database storage failed:', dbError.message);
+        console.error('Database storage failed:', dbError);
+        console.error('Error details:', {
+          message: dbError.message,
+          code: dbError.code,
+          detail: dbError.detail,
+          hint: dbError.hint
+        });
         // Continue anyway - we have the token
       }
     } else {
