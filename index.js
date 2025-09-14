@@ -78,22 +78,29 @@ app.get('/health', async (req, res) => {
 
 // Debug endpoint
 app.get('/debug', (req, res) => {
-  res.json({
-    environment_variables: {
-      SHOPIFY_API_KEY: SHOPIFY_API_KEY ? 'SET' : 'MISSING',
-      SHOPIFY_API_SECRET: SHOPIFY_API_SECRET ? 'SET' : 'MISSING',
-      HOST: HOST || 'MISSING',
-      DATABASE_URL: DATABASE_URL ? 'SET' : 'MISSING',
-      DB_HOST: DB_HOST || 'MISSING',
-      DB_PORT: DB_PORT || 'MISSING', 
-      DB_NAME: DB_NAME || 'MISSING',
-      DB_USER: DB_USER || 'MISSING',
-      DB_PASS: DB_PASS ? 'SET' : 'MISSING',
-      NODE_ENV: process.env.NODE_ENV || 'not set'
-    },
-    database_connection: pool ? 'initialized' : 'not initialized',
-    timestamp: new Date().toISOString()
-  });
+  try {
+    res.json({
+      environment_variables: {
+        SHOPIFY_API_KEY: SHOPIFY_API_KEY ? 'SET' : 'MISSING',
+        SHOPIFY_API_SECRET: SHOPIFY_API_SECRET ? 'SET' : 'MISSING',
+        HOST: HOST || 'MISSING',
+        DB_HOST: DB_HOST || 'MISSING',
+        DB_PORT: DB_PORT || 'MISSING', 
+        DB_NAME: DB_NAME || 'MISSING',
+        DB_USER: DB_USER || 'MISSING',
+        DB_PASS: DB_PASS ? 'SET' : 'MISSING',
+        NODE_ENV: process.env.NODE_ENV || 'not set'
+      },
+      database_connection: pool ? 'initialized' : 'not initialized',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Debug endpoint error',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // Root route
