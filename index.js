@@ -1,6 +1,7 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const crypto = require('crypto');
+const { Pool } = require('pg');
 
 const app = express();
 app.use(express.json());
@@ -9,6 +10,20 @@ app.use(express.json());
 const API_KEY = process.env.SHOPIFY_API_KEY;
 const API_SECRET = process.env.SHOPIFY_API_SECRET;
 const HOST = process.env.HOST || 'https://thecartsave-auth.vercel.app';
+
+// Database setup
+let pool = null;
+if (process.env.DATABASE_URL) {
+  try {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    });
+    console.log('Database connection pool initialized');
+  } catch (error) {
+    console.error('Failed to initialize database pool:', error.message);
+  }
+}
 
 // In-memory session store (simple for now)
 const sessions = new Map();
@@ -236,6 +251,15 @@ app.get('/oauth/callback', async (req, res) => {
 app.post('/webhooks/checkout_update', (req, res) => {
   console.log("Checkout update webhook received");
   res.status(200).send("ok");
+});
+
+// Start server
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Host: ${HOST}`);
+  console.log(`Database configured: ${!!process.env.DATABASE_URL}`);
 });
 
 module.exports = app;
