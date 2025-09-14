@@ -8,10 +8,41 @@ const cookieSession = require('cookie-session');
 const app = express();
 app.use(express.json());
 
+// Validate required environment variables first
+const API_KEY = process.env.SHOPIFY_API_KEY;
+const API_SECRET = process.env.SHOPIFY_API_SECRET;
+const HOST = process.env.HOST;
+const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!API_KEY) {
+  console.error('[ERROR] SHOPIFY_API_KEY environment variable is missing');
+  process.exit(1);
+}
+
+if (!API_SECRET) {
+  console.error('[ERROR] SHOPIFY_API_SECRET environment variable is missing');
+  process.exit(1);
+}
+
+if (!HOST) {
+  console.error('[ERROR] HOST environment variable is missing');
+  process.exit(1);
+}
+
+if (!DATABASE_URL) {
+  console.error('[ERROR] DATABASE_URL environment variable is missing');
+  process.exit(1);
+}
+
+console.log('[INFO] All environment variables loaded successfully');
+console.log('[INFO] API_KEY:', API_KEY ? `${API_KEY.substring(0, 8)}...` : 'MISSING');
+console.log('[INFO] HOST:', HOST);
+console.log('[INFO] DATABASE_URL:', DATABASE_URL ? `${DATABASE_URL.substring(0, 30)}...` : 'MISSING');
+
 // Add cookie session for state management
 app.use(cookieSession({
   name: 'session',
-  keys: [process.env.SHOPIFY_API_SECRET], 
+  keys: [API_SECRET], 
   maxAge: 24 * 60 * 60 * 1000 
 }));
 
@@ -34,7 +65,28 @@ app.use((req, res, next) => {
   next();
 });
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// Initialize database connection with error handling
+let pool;
+try {
+  pool = new Pool({ 
+    connectionString: DATABASE_URL,
+    ssl: DATABASE_URL.includes('supabase') ? { rejectUnauthorized: false } : false
+  });
+  console.log('[INFO] Database pool created successfully');
+} catch (err) {
+  console.error('[ERROR] Failed to create database pool:', err.message);
+  process.exit(1);
+}
+
+// Test database connection
+pool.connect()
+  .then(client => {
+    console.log('[INFO] Database connected successfully');
+    client.release();
+  })
+  .catch(err => {
+    console.error('[ERROR] Database connection failed:', err.message);
+  });
 
 // Create table if it doesn't exist
 pool.query(`
@@ -44,17 +96,11 @@ pool.query(`
     access_token TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )
-`).catch(err => console.log('Table creation error (might already exist):', err.message));
-
-const API_KEY = process.env.SHOPIFY_API_KEY;
-const API_SECRET = process.env.SHOPIFY_API_SECRET;
-const HOST = process.env.HOST;
-
-// Validate required environment variables
-if (!API_KEY || !API_SECRET || !HOST) {
-  console.error('[ERROR] Missing required environment variables');
-  process.exit(1);
-}
+`).then(() => {
+  console.log('[INFO] Database table ready');
+}).catch(err => {
+  console.log('[WARNING] Table creation error (might already exist):', err.message);
+});
 
 // Root route
 app.get('/', (req, res) => {
@@ -71,6 +117,7 @@ app.get('/debug', (req, res) => {
       API_KEY: API_KEY ? `${API_KEY.substring(0, 8)}...` : 'MISSING',
       API_SECRET: API_SECRET ? 'Present' : 'MISSING',
       HOST: HOST,
+      DATABASE_URL: DATABASE_URL ? 'Present' : 'MISSING',
       NODE_ENV: process.env.NODE_ENV
     },
     shopifyPartnerDashboard: {
@@ -267,12 +314,18 @@ app.get('/oauth/callback', async (req, res) => {
       return res.status(400).send("Failed to get access token");
     }
     
-    // Store in database
-    await pool.query(
-      `INSERT INTO shops (shop, access_token) VALUES ($1,$2) 
-       ON CONFLICT (shop) DO UPDATE SET access_token = EXCLUDED.access_token`,
-      [shop, accessToken]
-    );
+    // Store in database with error handling
+    try {
+      await pool.query(
+        `INSERT INTO shops (shop, access_token) VALUES ($1,$2) 
+         ON CONFLICT (shop) DO UPDATE SET access_token = EXCLUDED.access_token`,
+        [shop, accessToken]
+      );
+      console.log("[SUCCESS] Token stored in database for shop:", shop);
+    } catch (dbError) {
+      console.error("[ERROR] Database error:", dbError.message);
+      return res.status(500).send("Database error occurred");
+    }
     
     // Clear session
     req.session = null;
@@ -295,17 +348,39 @@ app.get('/oauth/callback', async (req, res) => {
 });
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    host: req.headers.host,
-    env: {
-      hasApiKey: !!API_KEY,
-      hasSecret: !!API_SECRET,
-      host: HOST
-    }
-  });
+app.get('/health', async (req, res) => {
+  try {
+    // Test database connection
+    const dbResult = await pool.query('SELECT NOW()');
+    res.json({ 
+      status: 'ok', 
+      timestamp: new Date().toISOString(),
+      host: req.headers.host,
+      database: 'connected',
+      dbTime: dbResult.rows[0].now,
+      env: {
+        hasApiKey: !!API_KEY,
+        hasSecret: !!API_SECRET,
+        host: HOST,
+        hasDatabase: !!DATABASE_URL
+      }
+    });
+  } catch (err) {
+    console.error('[ERROR] Health check failed:', err.message);
+    res.status(500).json({
+      status: 'error',
+      timestamp: new Date().toISOString(),
+      host: req.headers.host,
+      database: 'disconnected',
+      error: err.message,
+      env: {
+        hasApiKey: !!API_KEY,
+        hasSecret: !!API_SECRET,
+        host: HOST,
+        hasDatabase: !!DATABASE_URL
+      }
+    });
+  }
 });
 
 // Webhook endpoint
