@@ -219,6 +219,197 @@ app.get('/oauth/callback', async (req, res) => {
   }
 });
 
+// Helper function to get shop from database
+async function getShopByDomain(shopDomain) {
+  const dbPool = getPool();
+  if (!dbPool) throw new Error('Database not configured');
+  
+  const result = await dbPool.query('SELECT * FROM shops WHERE shop = $1', [shopDomain]);
+  return result.rows[0] || null;
+}
+
+// API Routes for your Shopify app
+
+// Get all repurpose jobs for a shop
+app.get('/api/jobs/:shop', async (req, res) => {
+  try {
+    const { shop } = req.params;
+    const shopRecord = await getShopByDomain(shop);
+    
+    if (!shopRecord) {
+      return res.status(404).json({ error: 'Shop not found' });
+    }
+
+    const dbPool = getPool();
+    const result = await dbPool.query(
+      `SELECT id, video_url, title, video_id, status, error_message, 
+              duration_ms, source, created_at, updated_at, outputs
+       FROM repurpose_jobs 
+       WHERE shop_id = $1 
+       ORDER BY created_at DESC`,
+      [shopRecord.id]
+    );
+
+    res.json({ jobs: result.rows });
+  } catch (error) {
+    console.error('Error fetching jobs:', error);
+    res.status(500).json({ error: 'Failed to fetch jobs' });
+  }
+});
+
+// Create a new repurpose job
+app.post('/api/jobs/:shop', async (req, res) => {
+  try {
+    const { shop } = req.params;
+    const { video_url, title, video_id, source } = req.body;
+
+    if (!video_url) {
+      return res.status(400).json({ error: 'video_url is required' });
+    }
+
+    const shopRecord = await getShopByDomain(shop);
+    if (!shopRecord) {
+      return res.status(404).json({ error: 'Shop not found' });
+    }
+
+    const dbPool = getPool();
+    const result = await dbPool.query(
+      `INSERT INTO repurpose_jobs (shop_id, video_url, title, video_id, source, status)
+       VALUES ($1, $2, $3, $4, $5, 'pending')
+       RETURNING *`,
+      [shopRecord.id, video_url, title, video_id, source || 'manual']
+    );
+
+    console.log('✅ New job created:', result.rows[0].id);
+    res.status(201).json({ job: result.rows[0] });
+  } catch (error) {
+    console.error('Error creating job:', error);
+    res.status(500).json({ error: 'Failed to create job' });
+  }
+});
+
+// Update job status
+app.patch('/api/jobs/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { status, outputs, error_message, duration_ms } = req.body;
+
+    const dbPool = getPool();
+    const result = await dbPool.query(
+      `UPDATE repurpose_jobs 
+       SET status = COALESCE($2, status),
+           outputs = COALESCE($3, outputs),
+           error_message = COALESCE($4, error_message),
+           duration_ms = COALESCE($5, duration_ms),
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [jobId, status, outputs ? JSON.stringify(outputs) : null, error_message, duration_ms]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    res.json({ job: result.rows[0] });
+  } catch (error) {
+    console.error('Error updating job:', error);
+    res.status(500).json({ error: 'Failed to update job' });
+  }
+});
+
+// Get single job by ID
+app.get('/api/jobs/:shop/:jobId', async (req, res) => {
+  try {
+    const { shop, jobId } = req.params;
+    const shopRecord = await getShopByDomain(shop);
+    
+    if (!shopRecord) {
+      return res.status(404).json({ error: 'Shop not found' });
+    }
+
+    const dbPool = getPool();
+    const result = await dbPool.query(
+      `SELECT * FROM repurpose_jobs 
+       WHERE id = $1 AND shop_id = $2`,
+      [jobId, shopRecord.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    res.json({ job: result.rows[0] });
+  } catch (error) {
+    console.error('Error fetching job:', error);
+    res.status(500).json({ error: 'Failed to fetch job' });
+  }
+});
+
+// Delete a job
+app.delete('/api/jobs/:shop/:jobId', async (req, res) => {
+  try {
+    const { shop, jobId } = req.params;
+    const shopRecord = await getShopByDomain(shop);
+    
+    if (!shopRecord) {
+      return res.status(404).json({ error: 'Shop not found' });
+    }
+
+    const dbPool = getPool();
+    const result = await dbPool.query(
+      `DELETE FROM repurpose_jobs 
+       WHERE id = $1 AND shop_id = $2
+       RETURNING id`,
+      [jobId, shopRecord.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    res.json({ message: 'Job deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting job:', error);
+    res.status(500).json({ error: 'Failed to delete job' });
+  }
+});
+
+// Get shop stats/dashboard data
+app.get('/api/stats/:shop', async (req, res) => {
+  try {
+    const { shop } = req.params;
+    const shopRecord = await getShopByDomain(shop);
+    
+    if (!shopRecord) {
+      return res.status(404).json({ error: 'Shop not found' });
+    }
+
+    const dbPool = getPool();
+    const result = await dbPool.query(
+      `SELECT 
+        COUNT(*) as total_jobs,
+        COUNT(*) FILTER (WHERE status = 'pending') as pending_jobs,
+        COUNT(*) FILTER (WHERE status = 'processing') as processing_jobs,
+        COUNT(*) FILTER (WHERE status = 'success') as completed_jobs,
+        COUNT(*) FILTER (WHERE status = 'failed') as failed_jobs,
+        AVG(duration_ms) as avg_duration_ms
+       FROM repurpose_jobs 
+       WHERE shop_id = $1`,
+      [shopRecord.id]
+    );
+
+    res.json({ 
+      shop: shopRecord.shop,
+      plan: shopRecord.plan,
+      stats: result.rows[0] 
+    });
+  } catch (error) {
+    console.error('Error fetching stats:', error);
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
 // Graceful shutdown for Vercel
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, closing database pool...');
