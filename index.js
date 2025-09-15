@@ -21,19 +21,43 @@ let pool;
 function getPool() {
   if (!pool && DATABASE_URL) {
     console.log('Creating new database pool...');
-    pool = new Pool({
+    
+    // Parse the connection string to handle SSL properly
+    const config = {
       connectionString: DATABASE_URL,
-      ssl: {
-        rejectUnauthorized: false
-      },
       // Vercel-specific optimizations
       max: 1, // Limit connections for serverless
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
+    };
+    
+    // Handle SSL configuration for Supabase
+    if (DATABASE_URL.includes('supabase.com')) {
+      config.ssl = {
+        rejectUnauthorized: false,
+        // Add additional SSL options for Supabase
+        ca: false,
+        checkServerIdentity: () => undefined
+      };
+    } else if (process.env.NODE_ENV === 'production') {
+      config.ssl = {
+        rejectUnauthorized: false
+      };
+    }
+    
+    console.log('Pool config:', {
+      ...config,
+      connectionString: '[REDACTED]'
     });
+    
+    pool = new Pool(config);
     
     pool.on('error', (err) => {
       console.error('Database pool error:', err);
+    });
+    
+    pool.on('connect', () => {
+      console.log('✅ Database connected successfully');
     });
   }
   return pool;
