@@ -243,7 +243,9 @@ app.get('/api/jobs/:shop', async (req, res) => {
     const dbPool = getPool();
     const result = await dbPool.query(
       `SELECT id, video_url, title, video_id, status, error_message, 
-              duration_ms, source, created_at, updated_at, outputs
+              duration_ms, source, created_at, updated_at, outputs,
+              customer_email, customer_name, cart_data, recovery_script,
+              voice_file_url, video_file_url
        FROM repurpose_jobs 
        WHERE shop_id = $1 
        ORDER BY created_at DESC`,
@@ -257,14 +259,33 @@ app.get('/api/jobs/:shop', async (req, res) => {
   }
 });
 
-// Create a new repurpose job
+// Create a new repurpose job (UPDATED TO HANDLE CART DATA)
 app.post('/api/jobs/:shop', async (req, res) => {
   try {
     const { shop } = req.params;
-    const { video_url, title, video_id, source } = req.body;
+    const { 
+      video_url, 
+      title, 
+      video_id, 
+      source,
+      customer_name,
+      customer_email, 
+      cart_data,
+      recovery_script,
+      voice_file_url,
+      video_file_url
+    } = req.body;
 
-    if (!video_url) {
-      return res.status(400).json({ error: 'video_url is required' });
+    // Validation based on job type
+    if (source === 'cart_abandonment') {
+      if (!customer_name || !customer_email) {
+        return res.status(400).json({ error: 'customer_name and customer_email are required for cart abandonment jobs' });
+      }
+    } else {
+      // For video repurposing jobs, video_url is still required
+      if (!video_url) {
+        return res.status(400).json({ error: 'video_url is required for video processing jobs' });
+      }
     }
 
     const shopRecord = await getShopByDomain(shop);
@@ -274,10 +295,26 @@ app.post('/api/jobs/:shop', async (req, res) => {
 
     const dbPool = getPool();
     const result = await dbPool.query(
-      `INSERT INTO repurpose_jobs (shop_id, video_url, title, video_id, source, status)
-       VALUES ($1, $2, $3, $4, $5, 'pending')
+      `INSERT INTO repurpose_jobs (
+        shop_id, video_url, title, video_id, source, status,
+        customer_name, customer_email, cart_data, recovery_script,
+        voice_file_url, video_file_url
+      )
+       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11)
        RETURNING *`,
-      [shopRecord.id, video_url, title, video_id, source || 'manual']
+      [
+        shopRecord.id, 
+        video_url || null, 
+        title, 
+        video_id, 
+        source || 'manual',
+        customer_name,
+        customer_email,
+        cart_data ? JSON.stringify(cart_data) : null,
+        recovery_script,
+        voice_file_url,
+        video_file_url
+      ]
     );
 
     console.log('✅ New job created:', result.rows[0].id);
@@ -288,11 +325,20 @@ app.post('/api/jobs/:shop', async (req, res) => {
   }
 });
 
-// Update job status
+// Update job status (UPDATED TO HANDLE CART FIELDS)
 app.patch('/api/jobs/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
-    const { status, outputs, error_message, duration_ms } = req.body;
+    const { 
+      status, 
+      outputs, 
+      error_message, 
+      duration_ms,
+      transcript,
+      recovery_script,
+      voice_file_url,
+      video_file_url
+    } = req.body;
 
     const dbPool = getPool();
     const result = await dbPool.query(
@@ -301,10 +347,24 @@ app.patch('/api/jobs/:jobId', async (req, res) => {
            outputs = COALESCE($3, outputs),
            error_message = COALESCE($4, error_message),
            duration_ms = COALESCE($5, duration_ms),
+           transcript = COALESCE($6, transcript),
+           recovery_script = COALESCE($7, recovery_script),
+           voice_file_url = COALESCE($8, voice_file_url),
+           video_file_url = COALESCE($9, video_file_url),
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
-      [jobId, status, outputs ? JSON.stringify(outputs) : null, error_message, duration_ms]
+      [
+        jobId, 
+        status, 
+        outputs ? JSON.stringify(outputs) : null, 
+        error_message, 
+        duration_ms,
+        transcript,
+        recovery_script,
+        voice_file_url,
+        video_file_url
+      ]
     );
 
     if (result.rows.length === 0) {
@@ -391,8 +451,10 @@ app.get('/api/stats/:shop', async (req, res) => {
         COUNT(*) as total_jobs,
         COUNT(*) FILTER (WHERE status = 'pending') as pending_jobs,
         COUNT(*) FILTER (WHERE status = 'processing') as processing_jobs,
-        COUNT(*) FILTER (WHERE status = 'success') as completed_jobs,
+        COUNT(*) FILTER (WHERE status = 'completed') as completed_jobs,
         COUNT(*) FILTER (WHERE status = 'failed') as failed_jobs,
+        COUNT(*) FILTER (WHERE source = 'cart_abandonment') as cart_recovery_jobs,
+        COUNT(*) FILTER (WHERE source = 'cart_abandonment' AND status = 'completed') as completed_cart_jobs,
         AVG(duration_ms) as avg_duration_ms
        FROM repurpose_jobs 
        WHERE shop_id = $1`,
