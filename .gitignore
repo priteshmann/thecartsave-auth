@@ -1,0 +1,14 @@
+# Environment variables (keeps your API keys secret)
+.env.local
+.env
+
+# Dependencies
+node_modules/
+
+# Next.js build files
+.next/
+out/
+
+# Runtime files
+.DS_Store
+*.log
